@@ -297,6 +297,11 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
         if output["meta_info"]["finish_reason"]["type"] == "length":
             break
 
+        # Hard cap: if total length already exceeds max context, stop before adding observations
+        if len(prompt_tokens_ids) + len(response_token_ids) >= max_context_length:
+            sample.status = Sample.Status.TRUNCATED
+            break
+
         next_obs, done = await execute_predictions(cur_response)
         if done:
             break
