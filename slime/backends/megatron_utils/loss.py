@@ -477,16 +477,13 @@ def policy_loss_function(
     response_lengths = batch["response_lengths"]
     total_lengths = batch["total_lengths"]
     max_seq_lens = batch.get("max_seq_lens", None)
-    entropy_requires_grad = args.entropy_coef > 0
-
     _, log_probs_and_entropy = get_log_probs_and_entropy(
         logits,
         args=args,
         unconcat_tokens=batch["unconcat_tokens"],
         total_lengths=total_lengths,
         response_lengths=response_lengths,
-        with_entropy=True,
-        requires_entropy_grad=entropy_requires_grad,
+        with_entropy=args.entropy_coef > 0,
         max_seq_lens=max_seq_lens,
     )
 
@@ -599,10 +596,9 @@ def policy_loss_function(
     ppo_kl = sum_of_sample_mean(ppo_kl)
 
     # entropy loss
-    entropy = log_probs_and_entropy["entropy"]
-    entropy = torch.cat(entropy, dim=0)
-    entropy_loss = sum_of_sample_mean(entropy)
-
+    entropy_loss = logits.new_zeros(())
+    if args.entropy_coef > 0:
+        entropy_loss = sum_of_sample_mean(torch.cat(log_probs_and_entropy["entropy"], dim=0))
     loss = pg_loss - args.entropy_coef * entropy_loss
 
     if args.use_kl_loss:
