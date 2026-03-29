@@ -313,7 +313,10 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
 
         assert next_obs != "", "Next observation should not be empty."
         obs_tokens_ids = state.tokenizer(next_obs, add_special_tokens=False)["input_ids"]
-        response += next_obs
+        # Truncate observation to fit within context limit
+        remaining = max(0, max_context_length - len(prompt_tokens_ids) - len(response_token_ids))
+        obs_tokens_ids = obs_tokens_ids[:remaining]
+        response += state.tokenizer.decode(obs_tokens_ids)
         response_token_ids += obs_tokens_ids
         loss_masks += [0] * len(obs_tokens_ids)
 
@@ -325,6 +328,10 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
             assert len(response_token_ids) == len(
                 sample.rollout_log_probs
             ), f"Token/logp length mismatch at turn {turn}: {len(response_token_ids)} tokens vs {len(sample.rollout_log_probs)} logps"
+
+        if len(prompt_tokens_ids) + len(response_token_ids) >= max_context_length:
+            sample.status = Sample.Status.TRUNCATED
+            break
 
         if tool_call_count >= TOOL_CONFIGS["max_tool_calls"]:
             break
