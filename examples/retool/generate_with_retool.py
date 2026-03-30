@@ -132,6 +132,10 @@ def postprocess_predictions(prediction: str):
     code_match = re.search(code_pattern, prediction, re.DOTALL)
     if code_match:
         content = code_match.group(1).strip()
+        # Strip markdown code fences if present (Qwen3 default behavior)
+        fence_match = re.match(r"^```(?:\w+)?\s*(.*?)\s*```$", content, re.DOTALL)
+        if fence_match:
+            content = fence_match.group(1).strip()
         return "code", content
 
     # Finally check for ```python code blocks (lowest priority)
@@ -399,5 +403,12 @@ async def reward_func(args, sample, **kwargs):
 
     if result["pred"] is None:
         result["pred"] = ""
+
+    # Penalize cases where no valid answer was extracted:
+    # - empty pred: model never wrote Answer: \boxed{...}
+    # - prompt injection: model literally copied $Answer or 'answer' from the format instruction
+    pred = result["pred"].strip().lower()
+    if pred == "" or pred in ("answer", "$answer", "\\answer"):
+        result["score"] -= 0.2
 
     return result
