@@ -132,6 +132,10 @@ def postprocess_predictions(prediction: str):
     code_match = re.search(code_pattern, prediction, re.DOTALL)
     if code_match:
         content = code_match.group(1).strip()
+        # Strip markdown code fences if present (e.g. ```python ... ```)
+        fence_match = re.match(r"^```(?:\w+)?\s*(.*?)\s*```$", content, re.DOTALL)
+        if fence_match:
+            content = fence_match.group(1).strip()
         return "code", content
 
     # Finally check for ```python code blocks (lowest priority)
