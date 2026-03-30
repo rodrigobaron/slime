@@ -132,10 +132,6 @@ def postprocess_predictions(prediction: str):
     code_match = re.search(code_pattern, prediction, re.DOTALL)
     if code_match:
         content = code_match.group(1).strip()
-        # Strip markdown code fences if present (e.g. ```python ... ```)
-        fence_match = re.match(r"^```(?:\w+)?\s*(.*?)\s*```$", content, re.DOTALL)
-        if fence_match:
-            content = fence_match.group(1).strip()
         return "code", content
 
     # Finally check for ```python code blocks (lowest priority)
@@ -317,10 +313,23 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
 
         assert next_obs != "", "Next observation should not be empty."
         obs_tokens_ids = state.tokenizer(next_obs, add_special_tokens=False)["input_ids"]
-        # Truncate observation to fit within context limit
-        remaining = max(0, max_context_length - len(prompt_tokens_ids) - len(response_token_ids))
-        obs_tokens_ids = obs_tokens_ids[:remaining]
-        response += state.tokenizer.decode(obs_tokens_ids)
+        remaining = max_context_length - len(prompt_tokens_ids) - len(response_token_ids)
+
+        obs_truncated = False
+        if len(obs_tokens_ids) > remaining:
+            # Semantic truncation: replace with a short complete notice rather than
+            # cutting tokens mid-sentence which would lose the closing tag and confuse the model
+            short_obs = "<interpreter>\n[context limit reached]\n</interpreter>\n"
+            short_ids = state.tokenizer(short_obs, add_special_tokens=False)["input_ids"]
+            if remaining > 0 and len(short_ids) <= remaining:
+                obs_tokens_ids = short_ids
+                next_obs = short_obs
+            else:
+                obs_tokens_ids = []
+                next_obs = ""
+            obs_truncated = True
+
+        response += next_obs
         response_token_ids += obs_tokens_ids
         loss_masks += [0] * len(obs_tokens_ids)
 
@@ -333,7 +342,7 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
                 sample.rollout_log_probs
             ), f"Token/logp length mismatch at turn {turn}: {len(response_token_ids)} tokens vs {len(sample.rollout_log_probs)} logps"
 
-        if len(prompt_tokens_ids) + len(response_token_ids) >= max_context_length:
+        if obs_truncated:
             sample.status = Sample.Status.TRUNCATED
             break
 
